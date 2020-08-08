@@ -1,0 +1,209 @@
+---
+title: "Data Wrangling"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Introduction
+
+Predict the countries that have the lowest rates of COVID based on predominent diseases and nutritional indicators for that country. The data comes from 3 different sources. Load the libraries.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(rvest)
+library(xml2)
+library(reticulate)
+library(readxl)
+library(scales)
+theme_set(theme_light())
+```
+
+## Import Data
+## BELOW IS DATA ON INCIDENCE OF COVID.
+The confirmed number of cases for each country comes from [here](https://www.worldometers.info/coronavirus/#countries). Since there is not a download method for the data, we will scrpae it using the `rvest` package.  Then we can select the data of interest (country, total cases, and population) from the source data.  
+
+```{r}
+covid_url <- 'https://www.worldometers.info/coronavirus/#countries'
+
+covid_country_tbl <- covid_url %>% xml2::read_html() %>% 
+  html_node(css = '#main_table_countries_today') %>% 
+  html_table() %>% clean_names() %>% 
+  filter(!is.na(number))
+
+covid_country_tbl <- covid_country_tbl %>% select(country_other, total_cases, population) %>% 
+  mutate(total_cases = parse_number(covid_country_tbl$total_cases)) %>%
+  mutate(population = parse_number(covid_country_tbl$population))
+
+```
+As an initail look at the number of cases, we can plot the countries with the top incidence of the virus.
+```{r}
+max_covid <- covid_country_tbl %>% 
+  mutate(country_other = fct_lump_n(country_other, 20, w=total_cases))
+
+max_covid%>% group_by(country_other) %>%
+  summarise(sum_total = sum(total_cases)) %>%
+  mutate(country_other = fct_reorder(country_other, sum_total)) %>% 
+  ggplot(aes(sum_total, country_other)) +
+  geom_col() +
+  scale_x_continuous(labels = scales::label_number())  
+```
+From this plot it is clear that there are some definitive leaders in the number of cases.  Also, we can see that the top countries are large and have a high populations, so we should consider the population of countries during our later analysis.  We have extracted population data to enable this.
+
+
+
+## BELOW IS DATA FOR ANNUAL CAUSES OF DEATH.
+The annual number of deaths by cause comes from [here](https://www.kaggle.com/gupvalmeida/causes-of-death-worldwide?select=annual-number-of-deaths-by-cause.csv) as a csv file.
+
+```{r}
+death_cause <- read_csv('H:/2020/Programming/SampleWork/6.Capstone2/Data/annual-number-of-deaths-by-cause.csv') %>% clean_names()
+```
+
+We can now look at converting this into a 'tidy' format. Every variable must be a column. So we can make this into a longer dataset by creating a new variable called `cause`.
+
+```{r}
+death_cause_longer <- death_cause %>% pivot_longer(
+  cols = 4:37,
+  names_to = 'cause',
+  values_to = 'total',
+  values_drop_na = TRUE
+)
+```
+We also want only recent data since the most prevelant causes of death may change significantly with environmental and condition changes that occur over time.  We will select only the most recent data to depict the currnet trends.
+
+```{r}
+maxYear <- max(death_cause_longer$year)
+death_cause_longer <- death_cause_longer %>% filter(year == maxYear)
+```
+
+What's the highest cause of death?
+
+```{r}
+death_max_cause <- death_cause_longer  %>% group_by(cause) %>% 
+  summarise(sum_total = mean(total)) %>% arrange(desc(sum_total))
+
+death_max_cause %>% 
+  mutate(cause = fct_reorder(cause, sum_total)) %>% 
+  ggplot(aes(sum_total, cause)) +
+  geom_col() +
+  scale_x_continuous(labels = scales::label_number())
+```
+
+It might be worthwhile to lump together causes of death that are not too significant in number. Let's consider only the top 10. The rest will be lumped together as `Other`
+
+```{r}
+death_cause_lumped <- death_cause_longer %>% 
+  mutate(cause = fct_lump_n(cause, 10, w = total))
+
+death_cause_lumped %>% group_by(cause) %>% 
+  summarise(sum_total = mean(total)) %>% 
+  mutate(cause = fct_reorder(cause, sum_total)) %>% 
+  ggplot(aes(sum_total, cause)) +
+  geom_col() +
+  scale_x_continuous(labels = scales::label_number())
+```
+
+Alternately, we can select those diseases that will affect suseptability to COVID-19.  These include any diseases that relate to or compromise the heart, lungs, or immune system.
+
+```{r}
+diseases <- c("meningitis_deaths", "kidney_disease_deaths", "parkinson_disease_deaths", "diabetes_deaths", "protein_energy_malnutrition_deaths", "liver_diseases_deaths", "malaria_deaths", "respiratory_diseases_deaths", "tuberculosis_deaths", "diarrheal_diseases_deaths", "dementia_deaths", "cancers_deaths", "hiv_aids_deaths", "cardiovascular_diseases_deaths", "hepatitis_deaths", "lower_respiratory_infections_deaths", "digestive_diseases_deaths", "nutritional_deficiencies_deaths")
+
+relevant_diseases <- death_cause_longer %>% filter(cause %in% diseases)
+```
+
+```{r}
+relevant_diseases %>% group_by(cause) %>% 
+  summarise(sum_total = sum(total)) %>% 
+  mutate(cause = fct_reorder(cause, sum_total)) %>% 
+  ggplot(aes(sum_total, cause)) +
+  geom_col() +
+  scale_x_continuous(labels = scales::label_number())
+
+relevant_diseases_tbl <- subset(relevant_diseases, select = c('entity','cause','total'))
+```
+
+We now have a tables of the incidence of COVID-19 (covid_country_tbl) as well as the diseases that could contribute to the incidence of COVID-19 (relevant_diseases).
+
+## BELOW IS DATA ON NUTRITION AND NUTRITIONAL INDICATORS. 
+Finally, nutritional information and related determinants can be found [here](https://globalnutritionreport.org/resources/nutrition-profiles/) as an excel file.  The sheets of interest are 'Country adult' and 'Country determinants' which respectively provide nutrition and nutrition determinants information.  I've imported these seperately to work on.  
+
+```{r}
+nutrition <- read_excel('H:/2020/Programming/SampleWork/6.Capstone2/Data/nutritional_profile_data.xlsx', sheet = "Country adult") %>% clean_names()
+determinants <- read_excel('H:/2020/Programming/SampleWork/6.Capstone2/Data/nutritional_profile_data.xlsx', sheet = "Country determinants") %>% clean_names()
+```
+Pivot the data to make it tidy.
+```{r}
+nutrit_longer <- nutrition %>% pivot_longer(
+  cols = 8:93,
+  names_to = 'type',
+  values_to = 'total',
+  values_drop_na = TRUE
+)
+
+determ_longer <- determinants%>% pivot_longer(
+  cols = 8:294,
+  names_to = 'type',
+  values_to = 'total',
+  values_drop_na = TRUE
+)
+```
+
+
+
+Again in these datasets, we are not interested in infromation about nutrition and determinants from decades ago since these will have changed.  We'll just use the most recent data for our purposes.  
+
+```{r}
+maxYear <-sub(".*_*_","",rev(names(determinants))[1])
+maxYearNut <- as.character(as.numeric(sub(".*_*_","",rev(names(determinants))[1]))-7) #reduced maxYear to get most data
+
+nutrit_filt <- filter(nutrit_longer, grepl(maxYearNut, type))
+nutrit_filt <- transform(nutrit_filt, total = as.numeric(total))
+determ_filt <- filter(determ_longer, grepl(maxYear, type))
+determ_filt <- transform(determ_filt, total = as.numeric(total))
+```
+We are interested in all disaggregation data for Country determinants and male/female disaggregation data for Country adult.  For the Country adult data all is not populated, so we will average Male/Female and we are also not interested in pregnancy for this study. Once we filter by this, all the values will be the same so we can remove the column. This also means we can remove disagg.value since it is Null for disaggregation = all and we will average over male/female for each country. We also do not need region, subregion, or section 
+
+Below are the values that we will remove
+
+Filter out/ sum values:
+In Nutrition:
+-pregnancy only val
+-avg disagg_value for each country/type (this step removes necessary columns)
+
+In Determinants:
+-disagg_value == Non Tax Revenue, Tax Revenue
+-columns disagg.value, region, subregion, section
+
+```{r}
+nutrit_filt <- filter(nutrit_filt, !grepl('pregnancy', disaggregation))
+aveNut <- nutrit_filt %>% group_by(country, type) %>%
+  summarise(total = mean(total))
+
+determ_filt <- filter(determ_filt, !grepl('Tax revenue', disagg_value))
+aveDet <- subset(determ_filt, select = c('country','type','total'))
+```
+Now that we have the values of interest from each sheet, we can merge the tables.
+```{r}
+nutrition_determinants_tbl <- rbind(aveNut, aveDet)
+```
+
+## BELOW IS FINAL DATA
+## covid_country_tbl, relevant_diseases_tbl, nutrition_determinants_tbl
+```{r}
+# rename columns to match as reasonable
+relevant_diseases_tbl <- rename(relevant_diseases_tbl, c("country" = "entity", "type" = "cause"))
+covid_country_tbl <- covid_country_tbl %>% rename("country" = "country_other")
+
+
+write.csv(covid_country_tbl,"H:/2020/Programming/SampleWork/6.Capstone2/Data/covid_country_tbl.csv", row.names = FALSE)
+write.csv(relevant_diseases_tbl, "H:/2020/Programming/SampleWork/6.Capstone2/Data/relevant_diseases_tbl.csv", row.names = FALSE)
+write.csv(nutrition_determinants_tbl, "H:/2020/Programming/SampleWork/6.Capstone2/Data/nutrition_determinants_tbl.csv", row.names = FALSE)
+```
+
+The data we will use is wrangled from sources and tidy.  Each dataset has been simplified (data not of use removed) and columns have been named consistently.  During data inspection, we will check values, make values consistend amoungst the datasets, and merge all the data.  
+
+

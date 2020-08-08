@@ -1,0 +1,17 @@
+Predict the countries that have the lowest rates of COVID based on predominent diseases and nutritional indicators for that country.  
+
+from dataset anual number of deaths by cause: use last 5 years and average over country for current number of deaths for each disease type
+	-this dataset has the number of deaths by cause
+	-will use causes that create more vulnerability in the population (i.e. cardiovascular, cancer, hepatitis, etc)
+	-data downloaded from kaggle: https://www.kaggle.com/gupvalmeida/causes-of-death-worldwide?select=annual-number-of-deaths-by-cause.csv
+	
+from nutrition dataset 
+	-From Region adult tab, use 'all' for each country for most recent year
+	-From Country determinants tab, use 'all' for metrics that provide percentage of that type of determinant (i.e., basic sanitation, basic water, fruit veg availability, etc)
+	- data found: https://globalnutritionreport.org/resources/nutrition-profiles/
+	
+from dataset covid use number of confirmed cases in country 
+	- will use total number of confirmed cases to date
+	-data found: https://www.worldometers.info/coronavirus/#countries
+
+	
