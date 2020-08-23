@@ -21,6 +21,9 @@ library(reticulate)
 library(readxl)
 library(scales)
 theme_set(theme_light())
+library(WDI)
+library(magrittr)
+library(mudata2)
 ```
 
 ## Import Data
@@ -38,6 +41,8 @@ covid_country_tbl <- covid_url %>% xml2::read_html() %>%
 covid_country_tbl <- covid_country_tbl %>% select(country_other, total_cases, population) %>% 
   mutate(total_cases = parse_number(covid_country_tbl$total_cases)) %>%
   mutate(population = parse_number(covid_country_tbl$population))
+
+covid_country_tbl['deaths_per_cap'] <- (covid_country_tbl$total_cases / covid_country_tbl$population) * 100000
 
 ```
 As an initail look at the number of cases, we can plot the countries with the top incidence of the virus.
@@ -62,6 +67,27 @@ The annual number of deaths by cause comes from [here](https://www.kaggle.com/gu
 ```{r}
 death_cause <- read_csv('H:/2020/Programming/SampleWork/6.Capstone2/Data/annual-number-of-deaths-by-cause.csv') %>% clean_names()
 ```
+
+
+
+```{r}
+#select for most recent years 2015-2017 so we can average them for an apporximate number of the population aflicted by death type.
+dea_df <- death_cause %>% filter(year == 2017 | year == 2016 | year == 2015)
+
+# downselect data to diseases that could make a person more suseptible to COVID (i.e. remove things like execution, homocide, etc.)
+cols.dea <- c("entity", "code", "year", "meningitis_deaths", "kidney_disease_deaths", "parkinson_disease_deaths", "diabetes_deaths", "protein_energy_malnutrition_deaths", "liver_diseases_deaths", "malaria_deaths", "respiratory_diseases_deaths", "tuberculosis_deaths", "diarrheal_diseases_deaths", "dementia_deaths", "cancers_deaths", "hiv_aids_deaths", "cardiovascular_diseases_deaths", "hepatitis_deaths", "lower_respiratory_infections_deaths", "digestive_diseases_deaths", "nutritional_deficiencies_deaths")
+
+dea_df <- dea_df %>%
+  subset(select = cols.dea) %>%
+  rename(country = entity)
+
+dea_df<-dea_df %>% 
+  group_by(country) %>%
+  summarise_at(vars(-c("code", "year")), mean, na.rm = TRUE)
+
+```
+
+
 
 We can now look at converting this into a 'tidy' format. Every variable must be a column. So we can make this into a longer dataset by creating a new variable called `cause`.
 
@@ -135,6 +161,156 @@ Finally, nutritional information and related determinants can be found [here](ht
 nutrition <- read_excel('H:/2020/Programming/SampleWork/6.Capstone2/Data/nutritional_profile_data.xlsx', sheet = "Country adult") %>% clean_names()
 determinants <- read_excel('H:/2020/Programming/SampleWork/6.Capstone2/Data/nutritional_profile_data.xlsx', sheet = "Country determinants") %>% clean_names()
 ```
+
+```{r}
+nut_df <- subset(nutrition, select = -c(disaggregation, disagg_value, region, subregion, section ))
+
+cols.num <- c("adult_anemia_2000", "adult_anemia_2001", "adult_anemia_2002", "adult_anemia_2003",        
+"adult_anemia_2004" ,        "adult_anemia_2005"  ,       "adult_anemia_2006"   ,     
+"adult_anemia_2007" ,        "adult_anemia_2008" ,        "adult_anemia_2009"  ,      
+ "adult_anemia_2010" ,        "adult_anemia_2011"   ,      "adult_anemia_2012",       
+ "adult_anemia_2013",         "adult_anemia_2014",         "adult_anemia_2015" ,      
+ "adult_anemia_2016"  ,       "adult_anemia_2017" ,        "adult_anemia_2018" ,      
+ "adult_blood_pressure_2000", "adult_blood_pressure_2001", "adult_blood_pressure_2002",
+ "adult_blood_pressure_2003" ,"adult_blood_pressure_2004" ,"adult_blood_pressure_2005",
+ "adult_blood_pressure_2006", "adult_blood_pressure_2007" ,"adult_blood_pressure_2008",
+ "adult_blood_pressure_2009", "adult_blood_pressure_2010", "adult_blood_pressure_2011",
+ "adult_blood_pressure_2012", "adult_blood_pressure_2013" ,"adult_blood_pressure_2014",
+ "adult_blood_pressure_2015", "adult_diabetes_2000",       "adult_diabetes_2001",      
+ "adult_diabetes_2002" ,      "adult_diabetes_2003" ,      "adult_diabetes_2004" ,    
+ "adult_diabetes_2005"  ,     "adult_diabetes_2006",       "adult_diabetes_2007" ,     
+ "adult_diabetes_2008"  ,     "adult_diabetes_2009" ,      "adult_diabetes_2010" ,     
+ "adult_diabetes_2011"  ,     "adult_diabetes_2012",       "adult_diabetes_2013" ,     
+ "adult_diabetes_2014" ,      "adult_obesity_2000" ,       "adult_obesity_2001",       
+ "adult_obesity_2002",        "adult_obesity_2003" ,       "adult_obesity_2004",      
+ "adult_obesity_2005" ,       "adult_obesity_2006" ,       "adult_obesity_2007",       
+ "adult_obesity_2008" ,       "adult_obesity_2009"  ,      "adult_obesity_2010",       
+ "adult_obesity_2011",        "adult_obesity_2012" ,       "adult_obesity_2013",       
+ "adult_obesity_2014",        "adult_obesity_2015" ,       "adult_obesity_2016",       
+ "adult_overweight_2000" ,    "adult_overweight_2001" ,    "adult_overweight_2002",    
+ "adult_overweight_2003" ,    "adult_overweight_2004" ,    "adult_overweight_2005",    
+ "adult_overweight_2006" ,    "adult_overweight_2007" ,    "adult_overweight_2008",    
+ "adult_overweight_2009" ,    "adult_overweight_2010"  ,   "adult_overweight_2011",    
+ "adult_overweight_2012" ,    "adult_overweight_2013"  ,   "adult_overweight_2014",    
+ "adult_overweight_2015" ,    "adult_overweight_2016" ,    "adult_sodium_2010",        
+ "adult_sodium_2017")
+
+nut_df[cols.num] <- sapply(nut_df[cols.num], as.numeric)
+# nut_df <- transform(nut_df, lapply(nut_df, as.numeric))
+
+nut_df<-nut_df %>% 
+  group_by(country) %>%
+  summarise_at(vars(-"iso3"), mean, na.rm = TRUE)
+```
+```{r}
+det_df <- subset(determinants, select = -c(disaggregation, disagg_value, region, subregion, section ))
+cols.det <- c("basic_sanitation_2000",            "basic_sanitation_2001" ,          
+ "basic_sanitation_2002" ,           "basic_sanitation_2003",            "basic_sanitation_2004" ,         
+ "basic_sanitation_2005" ,           "basic_sanitation_2006" ,           "basic_sanitation_2007" ,          
+ "basic_sanitation_2008" ,           "basic_sanitation_2009",            "basic_sanitation_2010" ,          
+ "basic_sanitation_2011" ,           "basic_sanitation_2012" ,           "basic_sanitation_2013" ,          
+ "basic_sanitation_2014" ,           "basic_sanitation_2015",            "basic_sanitation_2016" ,          
+ "basic_sanitation_2017" ,           "basic_water_2000",                "basic_water_2001" ,               
+ "basic_water_2002" ,                "basic_water_2003",                 "basic_water_2004",                
+ "basic_water_2005" ,                "basic_water_2006",                 "basic_water_2007",                
+ "basic_water_2008" ,                "basic_water_2009",                 "basic_water_2010",                
+ "basic_water_2011" ,                "basic_water_2012" ,                "basic_water_2013",                
+ "basic_water_2014" ,             "basic_water_2015" ,                "basic_water_2016",                
+ "basic_water_2017" ,            "community_health_workers_2000",    "community_health_workers_2001"   ,
+ "community_health_workers_2003",    "community_health_workers_2004",    "community_health_workers_2005"   ,
+ "community_health_workers_2006" ,   "community_health_workers_2007",    "community_health_workers_2008"   ,
+ "community_health_workers_2009"  ,  "community_health_workers_2010",    "community_health_workers_2011"   ,
+ "community_health_workers_2012"   , "community_health_workers_2013",    "community_health_workers_2014"   ,
+ "community_health_workers_2015" ,   "community_health_workers_2016",   "early_childbearing_prev_2001"    ,
+ "early_childbearing_prev_2004" ,    "early_childbearing_prev_2005",     "early_childbearing_prev_2006"    ,
+ "early_childbearing_prev_2007",     "early_childbearing_prev_2008" ,    "early_childbearing_prev_2009"    ,
+ "early_childbearing_prev_2010",     "early_childbearing_prev_2011",     "early_childbearing_prev_2012"    ,
+ "early_childbearing_prev_2013",     "early_childbearing_prev_2014",     "early_childbearing_prev_2015"    ,
+ "early_childbearing_prev_2016",     "female_secondary_enroll_net_2000", "female_secondary_enroll_net_2001",
+ "female_secondary_enroll_net_2002", "female_secondary_enroll_net_2003", "female_secondary_enroll_net_2004",
+ "female_secondary_enroll_net_2005", "female_secondary_enroll_net_2006", "female_secondary_enroll_net_2007",
+ "female_secondary_enroll_net_2008", "female_secondary_enroll_net_2009", "female_secondary_enroll_net_2010",
+ "female_secondary_enroll_net_2011", "female_secondary_enroll_net_2012", "female_secondary_enroll_net_2013",
+ "female_secondary_enroll_net_2014", "female_secondary_enroll_net_2015" ,"female_secondary_enroll_net_2016",
+ "female_secondary_enroll_net_2017", "female_secondary_enroll_net_2018", "fruit_veg_availability_2000"     ,
+ "fruit_veg_availability_2001",      "fruit_veg_availability_2002",      "fruit_veg_availability_2003"     ,
+ "fruit_veg_availability_2004",      "fruit_veg_availability_2005",      "fruit_veg_availability_2006"     ,
+ "fruit_veg_availability_2007",      "fruit_veg_availability_2008",      "fruit_veg_availability_2009"     ,
+ "fruit_veg_availability_2010",      "fruit_veg_availability_2011" ,     "fruit_veg_availability_2012"     ,
+ "fruit_veg_availability_2013",      "government_revenue_2015",         "government_revenue_2016"         ,
+ "government_revenue_2017",          "government_revenue_2018" ,         "government_revenue_2019"         ,
+ "government_revenue_2020",          "government_revenue_2021" ,         "government_revenue_2022"         ,
+ "government_revenue_2023",          "government_revenue_2024" ,         "government_revenue_2025"         ,
+ "limited_sanitation_2000",          "limited_sanitation_2001" ,         "limited_sanitation_2002"         ,
+ "limited_sanitation_2003",          "limited_sanitation_2004" ,         "limited_sanitation_2005"         ,
+ "limited_sanitation_2006",          "limited_sanitation_2007" ,         "limited_sanitation_2008"         ,
+ "limited_sanitation_2009",          "limited_sanitation_2010" ,        "limited_sanitation_2011"         ,
+ "limited_sanitation_2012",          "limited_sanitation_2013" ,         "limited_sanitation_2014"        , 
+ "limited_sanitation_2015",          "limited_sanitation_2016" ,         "limited_sanitation_2017"       ,  
+ "limited_water_2000",               "limited_water_2001",               "limited_water_2002"           ,   
+ "limited_water_2003",               "limited_water_2004",              "limited_water_2005"          ,    
+ "limited_water_2006",               "limited_water_2007",               "limited_water_2008"         ,     
+ "limited_water_2009",               "limited_water_2010",               "limited_water_2011"        ,      
+ "limited_water_2012",               "limited_water_2013",               "limited_water_2014"        ,
+ "limited_water_2015",               "limited_water_2016",               "limited_water_2017"        ,
+ "nurses_and_midwives_2001",         "nurses_and_midwives_2003",         "nurses_and_midwives_2004"        ,
+ "nurses_and_midwives_2005",         "nurses_and_midwives_2006",         "nurses_and_midwives_2009"        ,
+ "nurses_and_midwives_2010",         "nurses_and_midwives_2011",         "nurses_and_midwives_2012"        ,
+ "nurses_and_midwives_2013",         "nurses_and_midwives_2014",         "nurses_and_midwives_2015"        ,
+ "nurses_and_midwives_2016",         "open_defecation_2000",             "open_defecation_2001"            ,
+ "open_defecation_2002",             "open_defecation_2003",             "open_defecation_2004"           , 
+ "open_defecation_2005",             "open_defecation_2006",             "open_defecation_2007"          ,  
+ "open_defecation_2008",             "open_defecation_2009",             "open_defecation_2010"         ,   
+ "open_defecation_2011",             "open_defecation_2012",             "open_defecation_2013"        ,    
+ "open_defecation_2014",             "open_defecation_2015",             "open_defecation_2016"       ,     
+ "open_defecation_2017",             "physicians_2001",                  "physicians_2003"  ,     
+"physicians_2004",                  "physicians_2005",                  "physicians_2006"  ,     
+ "physicians_2007",                  "physicians_2008",                  "physicians_2009"   ,       
+ "physicians_2010",                  "physicians_2011",                  "physicians_2012"   ,        
+ "physicians_2013",                  "physicians_2014",                  "physicians_2015"   ,         
+ "physicians_2016",                  "safely_managed_sanitation_2000",   "safely_managed_sanitation_2001"  ,
+ "safely_managed_sanitation_2002",   "safely_managed_sanitation_2003",   "safely_managed_sanitation_2004"  ,
+ "safely_managed_sanitation_2005",   "safely_managed_sanitation_2006",   "safely_managed_sanitation_2007"  ,
+ "safely_managed_sanitation_2008",   "safely_managed_sanitation_2009",   "safely_managed_sanitation_2010"  ,
+ "safely_managed_sanitation_2011",   "safely_managed_sanitation_2012",   "safely_managed_sanitation_2013"  ,
+ "safely_managed_sanitation_2014",   "safely_managed_sanitation_2015",   "safely_managed_sanitation_2016"  ,
+ "safely_managed_sanitation_2017",   "safely_managed_water_2000",        "safely_managed_water_2001"  ,
+ "safely_managed_water_2002",        "safely_managed_water_2003",        "safely_managed_water_2004"  ,
+ "safely_managed_water_2005",        "safely_managed_water_2006",        "safely_managed_water_2007"  ,
+ "safely_managed_water_2008",        "safely_managed_water_2009",        "safely_managed_water_2010"  ,
+ "safely_managed_water_2011",        "safely_managed_water_2012",        "safely_managed_water_2013"  ,
+ "safely_managed_water_2014",        "safely_managed_water_2015",        "safely_managed_water_2016"  ,
+ "safely_managed_water_2017",        "surface_water_2000",               "surface_water_2001"  ,
+ "surface_water_2002",               "surface_water_2003",               "surface_water_2004"  ,
+ "surface_water_2005",               "surface_water_2006",               "surface_water_2007"  ,
+ "surface_water_2008",               "surface_water_2009",               "surface_water_2010"  ,
+ "surface_water_2011",               "surface_water_2012",               "surface_water_2013"  ,
+ "surface_water_2014",               "surface_water_2015",               "surface_water_2016"  ,
+ "surface_water_2017",               "undernourishment_prev_2001",       "undernourishment_prev_2005"  ,
+ "undernourishment_prev_2009",       "undernourishment_prev_2013",       "undernourishment_prev_2017"  ,
+ "unimproved_sanitation_2000",       "unimproved_sanitation_2001",       "unimproved_sanitation_2002" ,
+ "unimproved_sanitation_2003",       "unimproved_sanitation_2004",       "unimproved_sanitation_2005"  ,
+ "unimproved_sanitation_2006",       "unimproved_sanitation_2007",       "unimproved_sanitation_2008" , 
+ "unimproved_sanitation_2009",       "unimproved_sanitation_2010",       "unimproved_sanitation_2011" ,  
+ "unimproved_sanitation_2012",       "unimproved_sanitation_2013",       "unimproved_sanitation_2014" ,   
+ "unimproved_sanitation_2015",       "unimproved_sanitation_2016",       "unimproved_sanitation_2017" ,    
+ "unimproved_water_2000",            "unimproved_water_2001",            "unimproved_water_2002" ,     
+ "unimproved_water_2003",            "unimproved_water_2004",            "unimproved_water_2005" ,      
+ "unimproved_water_2006",            "unimproved_water_2007",            "unimproved_water_2008" ,       
+ "unimproved_water_2009",            "unimproved_water_2010",            "unimproved_water_2011" ,        
+ "unimproved_water_2012",            "unimproved_water_2013",            "unimproved_water_2014" ,         
+ "unimproved_water_2015",            "unimproved_water_2016",            "unimproved_water_2017" )
+
+det_df[cols.det] <- sapply(det_df[cols.det], as.numeric)
+
+det_df <- det_df %>% 
+  group_by(country) %>%
+  summarise_at(vars(-"iso3"), mean, na.rm = TRUE)
+
+```
+
+
+
 Pivot the data to make it tidy.
 ```{r}
 nutrit_longer <- nutrition %>% pivot_longer(
@@ -191,6 +367,50 @@ Now that we have the values of interest from each sheet, we can merge the tables
 nutrition_determinants_tbl <- rbind(aveNut, aveDet)
 ```
 
+
+
+## BELOW IS DATA ON MOBILITY CHANGES DUE TO COVID.
+This data is available from [google mobility reports](https://www.google.com/covid19/mobility/).  
+
+```{r}
+mobility <- read_csv('H:/2020/Programming/SampleWork/6.Capstone2/Data/Global_Mobility_Report.csv') %>% clean_names()
+head(mobility)
+```
+
+```{r}
+mob_df <- subset(mobility, select = c("country_region", "country_region_code", "retail_and_recreation_percent_change_from_baseline", "grocery_and_pharmacy_percent_change_from_baseline", "parks_percent_change_from_baseline", "transit_stations_percent_change_from_baseline", "workplaces_percent_change_from_baseline", "residential_percent_change_from_baseline" ))
+
+mob_df <- mob_df %>% 
+  group_by(country_region) %>%
+  summarise_at(vars(-"country_region_code"), funs(mean(., na.rm = TRUE)))
+
+mob_df <- mob_df %>% rename(country=country_region)
+```
+
+
+
+
+## BELOW IS DATA ON WORLD DEVELOPMENT INDICATORS
+The world development indicators dataset is available from [The World Bank](https://databank.worldbank.org/source/world-development-indicators).  The API can be accessed with the package `WDI` and the data can be searched by keyword with `WDIsearch()`.  
+
+
+```{r}
+economy1 <- WDI(indicator = "IQ.CPA.ECON.XQ") #"CPIA economic management cluster average (1=low to 6=high)" 
+economy2 <- WDI(indicator = "IQ.CPA.MACR.XQ") #"CPIA macroeconomic management rating (1=low to 6=high)"
+```
+```{r}
+economy <- merge(economy1, economy2, by.x = c("country", "year", "iso2c"), by.y = c("country", "year", "iso2c" ))
+economy <- economy %>% 
+  filter(year == 2019) %>%
+  rename("economic_rating" = "IQ.CPA.ECON.XQ", "macroeconomic_rating" = "IQ.CPA.MACR.XQ") %>%
+  select(-c("year", "iso2c"))
+  
+```
+
+
+
+
+
 ## BELOW IS FINAL DATA
 ## covid_country_tbl, relevant_diseases_tbl, nutrition_determinants_tbl
 ```{r}
@@ -203,7 +423,53 @@ write.csv(covid_country_tbl,"H:/2020/Programming/SampleWork/6.Capstone2/Data/cov
 write.csv(relevant_diseases_tbl, "H:/2020/Programming/SampleWork/6.Capstone2/Data/relevant_diseases_tbl.csv", row.names = FALSE)
 write.csv(nutrition_determinants_tbl, "H:/2020/Programming/SampleWork/6.Capstone2/Data/nutrition_determinants_tbl.csv", row.names = FALSE)
 ```
+The data above is wrangled from sources and tidy.  Each dataset has been simplified (data not of use removed) and columns have been named consistently.  During data inspection, we will check values, make values consistend amoungst the datasets, and merge all the data.  
 
-The data we will use is wrangled from sources and tidy.  Each dataset has been simplified (data not of use removed) and columns have been named consistently.  During data inspection, we will check values, make values consistend amoungst the datasets, and merge all the data.  
+## Data with variables over many columns.  
+Here we merge the dfs and rename countries to be consistent amongst dfs.
+```{r}
+nut_det <- merge(nut_df, det_df, by="country") 
+# fix some inconsistent names with 
+nut_det$country[nut_det$country == "United States of America"] <- "United States"
+nut_det$country[nut_det$country == "United Kingdom of Great Britain and Northern Ireland"] <- "United Kingdom"
+nut_det$country[nut_det$country == "CÃ´te dâ€™Ivoire"] <- "Côte d'Ivoire"
+nut_det$country[nut_det$country == "Lao People's Democratic Republic"] <- "Laos"
+nut_det$country[nut_det$country == "Myanmar"] <- "Myanmar (Burma)"
+nut_det$country[nut_det$country == "Republic of Moldova"] <- "Moldova"
+nut_det$country[nut_det$country == "Russian Federation"] <- "Russia"
+nut_det$country[nut_det$country == "Republic of Korea"] <- "South Korea"
+nut_det$country[nut_det$country == "Bahamas"] <- "The Bahamas"
+nut_det$country[nut_det$country == "United Republic of Tanzania"] <- "Tanzania"  
+nut_det$country[nut_det$country == "Viet Nam"] <- "Vietnam"   
 
 
+nut_det_mob <- merge(nut_det, mob_df, by="country")
+nut_det_mob$country[nut_det_mob$country == "Côte d'Ivoire"] <- "Cote d'Ivoire"  
+nut_det_mob$country[nut_det_mob$country ==  "Czechia"] <- "Czech Republic"
+nut_det_mob$country[nut_det_mob$country ==  "Czechia"] <- "Czech Republic"
+nut_det_mob$country[nut_det_mob$country ==  "Myanmar (Burma)"] <- "Myanmar"
+nut_det_mob$country[nut_det_mob$country ==  "North Macedonia"] <- "Macedonia"
+nut_det_mob$country[nut_det_mob$country ==  "The Bahamas"] <- "Bahamas"
+
+
+nut_det_mob_dea <- merge(nut_det_mob, dea_df, by="country")
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Bahamas"] <- "Bahamas, The"
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Egypt"] <- "Egypt, Arab Rep."
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Kyrgyzstan"] <- "Kyrgyz Republic"
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Laos"] <- "Lao PDR"
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Macedonia"] <- "North Macedonia"
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Russia"] <- "Russian Federation"
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Slovakia" ] <- "Slovak Republic"
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "South Korea" ] <- "Korea, Rep."
+nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Yemen" ] <- "Yemen, Rep."
+
+
+
+nut_det_mob_dea_eco <- merge(nut_det_mob_dea, economy, by="country")
+```
+
+```{r}
+write.csv(nut_det_mob_dea_eco,"H:/2020/Programming/SampleWork/6.Capstone2/Data/AllData.csv", row.names = FALSE)
+```
+
+The aboved data is a reader friendly version of the merged data with each column representing an observation for the country in column 1.  
