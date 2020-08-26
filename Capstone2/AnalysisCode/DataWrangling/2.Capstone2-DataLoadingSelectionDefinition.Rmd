@@ -25,8 +25,8 @@ library(WDI)
 library(magrittr)
 library(mudata2)
 library(COVID19) #daily data from many sources on COVID-19 infection
-#library(optimbase)
-library(dplyr)
+library(dplyr) #library(optimbase), attempt at using near.
+library(countrycode) # decided to use this instead of library(hash) for making a dict of country codes
 ```
 
 ## Import Data
@@ -45,7 +45,7 @@ covid_country_tbl <- covid_country_tbl %>% select(country_other, total_cases, po
   mutate(total_cases = parse_number(covid_country_tbl$total_cases)) %>%
   mutate(population = parse_number(covid_country_tbl$population))
 
-covid_country_tbl['deaths_per_cap'] <- (covid_country_tbl$total_cases / covid_country_tbl$population) * 100000
+ covid_country_tbl['casesmob_df <- subset(mobility, select = c("country_region", "country_region_code", "retail_and_recreation_percent_change_from_baseline", "grocery_and_pharmacy_percent_change_from_baseline", "parks_percent_change_from_baseline", "transit_stations_percent_change_from_baseline", "workplaces_percent_change_from_baseline", "residential_percent_change_from_baseline" ))_per_cap'] <- (covid_country_tbl$total_cases / covid_country_tbl$population) * 100000
 
 ```
 As an initail look at the number of cases, we can plot the countries with the top incidence of the virus.
@@ -91,6 +91,7 @@ head(covid_allworld_bycountry)
 
 
 ```{r}
+#find days with >= than num_cases
 num_cases <- 100
 
 days_over100 <-covid_allworld_bycountry %>%
@@ -100,8 +101,11 @@ days_over100
 
 ```
 ```{r}
+#get the first day equal to or over num_cases
+
 covid_dayof100 <- days_over100[match(unique(days_over100$id), days_over100$id),]
-covid_dayof100
+covid_dayof100 <- covid_dayof100[c('id', 'date', 'confirmed')]
+head(covid_dayof100)
 ```
 
 
@@ -512,10 +516,61 @@ nut_det_mob_dea$country[nut_det_mob_dea$country ==  "Yemen" ] <- "Yemen, Rep."
 
 
 nut_det_mob_dea_eco <- merge(nut_det_mob_dea, economy, by="country")
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Bahamas, The" ] <- 'Bahamas'
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Bosnia and Herzegovina" ] <- 'Bosnia & Herzegovina'
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Cote d'Ivoire" ] <- 'Côte d’Ivoire'
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Czech Republic" ] <- 'Czechia'
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Egypt, Arab Rep." ] <- 'Egypt'
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Korea, Rep." ] <- 'South Korea'
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Kyrgyz Republic" ] <-"Kyrgyzstan"
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Russian Federation" ] <- "Russia"
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Slovak Republic" ] <- "Slovakia"
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Trinidad and Tobago" ] <- "Trinidad & Tobago"
+nut_det_mob_dea_eco$country[nut_det_mob_dea_eco$country ==  "Yemen, Rep." ] <- "Yemen"
+
 ```
 
+Create a dict of country id to country in order to tie in the days_over100 COVID result.
 ```{r}
-write.csv(nut_det_mob_dea_eco,"H:/2020/Programming/SampleWork/6.Capstone2/Data/AllData.csv", row.names = FALSE)
+# country codes from: https://www.iban.com/country-codes
+# after considering the above method, decided to use countrycode package in r
+
+#country_codes <- read_csv('H:/2020/Programming/SampleWork/6.Capstone2/Data/CountryCodes.csv') %>% clean_names()
+#country <- country_codes$country
+#codes <- country_codes$code
+#h <- hash()
+#h[['country']] <- country
+#h[['codes']] <- codes
+
+#NA at row index 29(COC=couldn't find, may be an error), 50(DPC=couldn't find, may be an error), and 139(RKS=Kosovo, from one source only)
+
+
+codes.of.origin <- covid_dayof100$id  #vector of iso3c values to be converted
+covid_dayof100['country'] <- countrycode(codes.of.origin, "iso3c", "country.name")
+
+nut_det_mob_dea_eco_day <- merge(nut_det_mob_dea_eco, covid_dayof100, by='country')
+
+nut_det_mob_dea_eco_day$country[nut_det_mob_dea_eco_day$country ==  "Bosnia & Herzegovina" ] <- "Bosnia and Herzegovina"
+nut_det_mob_dea_eco_day$country[nut_det_mob_dea_eco_day$country ==  "South Korea" ] <- "S. Korea"
+nut_det_mob_dea_eco_day$country[nut_det_mob_dea_eco_day$country ==  "Trinidad & Tobago" ] <- "Trinidad and Tobago"
+nut_det_mob_dea_eco_day$country[nut_det_mob_dea_eco_day$country ==  "United Arab Emirates" ] <- "UAE"
+nut_det_mob_dea_eco_day$country[nut_det_mob_dea_eco_day$country ==  "United Kingdom" ] <- "UK"
+nut_det_mob_dea_eco_day$country[nut_det_mob_dea_eco_day$country ==  "United States" ] <- "USA"
+
+```
+
+Add in COVID per capita to compare to days_over100 result and ensure correlation.
+```{r}
+cpc_df <- subset(covid_country_tbl, select = c("country", "cases_per_cap" ))
+
+nut_det_mob_dea_eco_day_cpc <- merge(nut_det_mob_dea_eco_day, cpc_df, by = 'country')
+```
+
+
+
+
+```{r}
+write.csv(nut_det_mob_dea_eco_day_cpc,"H:/2020/Programming/SampleWork/6.Capstone2/Data/AllData.csv", row.names = FALSE)
 ```
 
 The aboved data is a reader friendly version of the merged data with each column representing an observation for the country in column 1.  
