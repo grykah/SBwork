@@ -17,13 +17,16 @@ library(lubridate)
 library(janitor)
 library(rvest)
 library(xml2)
-library(reticulate)
+library(reticulate) # to use python
 library(readxl)
 library(scales)
 theme_set(theme_light())
 library(WDI)
 library(magrittr)
 library(mudata2)
+library(COVID19) #daily data from many sources on COVID-19 infection
+#library(optimbase)
+library(dplyr)
 ```
 
 ## Import Data
@@ -58,6 +61,49 @@ max_covid%>% group_by(country_other) %>%
   scale_x_continuous(labels = scales::label_number())  
 ```
 From this plot it is clear that there are some definitive leaders in the number of cases.  Also, we can see that the top countries are large and have a high populations, so we should consider the population of countries during our later analysis.  We have extracted population data to enable this.
+
+
+
+Above is COVID data broken down in several ways, including by highest infection rate and by number of cases per 100,000 people.  These breakdowns are visually informative and will provide a corrilation variable for our predictive variable--the day at which a country reaches 1,000 cases.  This predictive varaible was choosen since it will remain constant, but to ensure it is a good representation of the rate and future number of COVID cases, we should check that the cases per capita is highly correlated.  
+
+```{r}
+# library(COVID19)
+# COVID19 citation:   
+# Guidotti, E., Ardia, D., (2020), "COVID-19 Data Hub", Journal of Open Source Software
+# 5(51):2376, doi: 10.21105/joss.02376.
+
+covid_allworld_bycountry <- covid19()
+head(covid_allworld_bycountry)
+```
+
+```{r}
+#this method did not work @ near() call
+
+#num_cases <- ones(length(covid_allworld_bycountry$confirmed), 1) * 100
+#how_near <- 5
+
+#conf_100 <- near(covid_allworld_bycountry$confirmed, num_cases, tol = how_near)
+#covid_allworld_bycountry$confirmed[conf_100]
+
+#covid_allworld_bycountry %>%
+#  near(covid_allworld_bycountry$confirmed, num_cases, tol = how_near)
+```
+
+
+```{r}
+num_cases <- 100
+
+days_over100 <-covid_allworld_bycountry %>%
+  filter(confirmed >= num_cases, na.rm = TRUE)
+
+days_over100
+
+```
+```{r}
+covid_dayof100 <- days_over100[match(unique(days_over100$id), days_over100$id),]
+covid_dayof100
+```
+
 
 
 
