@@ -1,0 +1,265 @@
+---
+title: "Logistic Regression in R"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Logistic Regression
+
+This case study provides an advanced (and optional) extension to the DSC for those wanting to delve into the math behind logistic regression in a Python environment. We've adapted this case study from [Lab 5 in the CS109](https://github.com/cs109/2015lab5) course. Please feel free to check out the original lab, both for more exercises, as well as solutions.
+
+We turn our attention to **classification**. Classification tries to predict, which of a small set of classes, an observation belongs to. Mathematically, the aim is to find $y$, a **label** based on knowing a feature vector $\x$. For instance, consider predicting gender from seeing a person's face, something we do fairly well as humans. To have a machine do this well, we would typically feed the machine a bunch of images of people which have been labelled "male" or "female" (the training set), and have it learn the gender of the person in the image from the labels and the *features* used to determine gender. Then, given a new photo, the trained algorithm returns us the gender of the person in the photo.
+
+There are different ways of making classifications. One idea is shown schematically in the image below, where we find a line that divides "things" of two different types in a 2-dimensional feature space. The classification show in the figure below is an example of a maximum-margin classifier where construct a decision boundary that is far as possible away from both classes of points. The fact that a line can be drawn to separate the two classes makes the problem *linearly separable*. Support Vector Machines (SVM) are an example of a maximum-margin classifier.
+
+## A Motivating Example Using `tidymodels`: Heights and Weights
+
+We'll use a dataset of heights and weights of males and females to hone our understanding of classifiers. We load the data into a dataframe and plot it.
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+theme_set(theme_light())
+
+dflog <- read_csv('data/01_heights_weights_genders.csv')
+dflog$Gender <- as.factor(dflog$Gender)
+ggplot(dflog, aes(Height, Weight, color = Gender)) +
+  geom_point(alpha = 0.3)
+```
+
+We will now use packages within the `tidymodels` to predict the gender of a person given the height and weight of the person. The first thing to do is to split our dataset into a train and test (hold-out) dataset. Prior to doing that, it is always a good idea to check for any class imbalance.
+
+```{r}
+table(dflog$Gender)
+```
+
+We see that the dataset is perfectly balanced. Realistically, this is rarely the case. So it is always good to undertake a [stratified sampling](http://www.feat.engineering/data-splitting.html). The `rsample` package within the `tidymodels` is used for splitting the data.
+
+```{r}
+set.seed(42)
+splits <- initial_split(dflog, strata = Gender)
+df_train <- training(splits)
+df_test <- testing(splits)
+```
+
+We can check for proportions in our split data based on the `Gender`.
+
+```{r}
+df_train %>% count(Gender) %>% mutate(prop = n/sum(n))
+df_test %>% count(Gender) %>% mutate(prop = n/sum(n))
+```
+
+So all seems well with the initial split that we have carried out on our data. We can now proceed to make some recipes.
+
+## Create A Recipe
+
+Before training our model, we can use the `recipes` package to pre-process our data and create new features if required. Let us start off by creating a simple recipe.
+
+```{r}
+df_rec <- recipe(Gender ~., data = df_train)
+summary(df_rec)
+```
+
+Note that `recipe()` takes in two arguments - a formula and the data. The formula being used here is `Gender ~.` which means that `Gender` is being regressed on all variables. Unfortunately there is not much to do here as far as creating recipes is concerned. But the `recipes` package does provide you with some very useful steps that make all the difference while building a model. You can read more about it [here](https://recipes.tidymodels.org/).
+
+## Fit A Model
+
+We can use the `parsnip` package to specify a model that we would like to build.
+
+```{r}
+lr_mod <- logistic_reg() %>% set_engine('glm')
+```
+
+Now that we have a recipe and a model, we need to undertake the following three steps:
+
+1. Process the recipe using the training dataset.
+2. Apply the recipe to the train set.
+3. Apply the recipe to the test set.
+
+To simplify this process, we can use a *model workflow*, which pairs a model and recipe together. This is a straightforward approach because different recipes are often needed for different models, so when a model and recipe are bundled, it becomes easier to train and test workflows. We’ll use the `workflows` package from `tidymodels` to bundle our parsnip model (`lr_mod`) with our recipe (`df_rec`).
+
+```{r}
+df_workflow <- workflow() %>% 
+  add_model(lr_mod) %>% 
+  add_recipe(df_rec)
+
+df_workflow
+```
+
+We can now use a single function to prepare the recipe and train the model from the resulting predictors:
+
+```{r}
+df_fit <- df_workflow %>% 
+  fit(df_train)
+```
+
+`fit` is a really powerful function and we can now extract our model to see what it has done.
+
+```{r}
+df_fit %>% pull_workflow_fit() %>% tidy()
+```
+
+Now what remains is to use our trained workflow to predict on the test data.
+
+```{r}
+gender_pred_factor <- predict(df_fit, df_test) %>% 
+  bind_cols(df_test)
+gender_pred_factor
+```
+
+We can also view the predicted probabilities for each `Gender` class.
+
+```{r}
+gender_pred <- predict(df_fit, df_test, type = 'prob') %>% 
+  bind_cols(df_test)
+
+gender_pred
+```
+
+As a metric, we can plot the ROC curve from the `yardstick` package.
+
+```{r}
+gender_pred %>% roc_curve(truth = Gender, .pred_Female) %>% 
+  autoplot()
+```
+
+Similarly, the ROC AUC can also be extracted.
+
+```{r}
+gender_pred %>% roc_auc(truth = Gender, .pred_Female)
+```
+
+Overall accuracy of the model (which is a better metric than AUC when the dataset is balanced) is as shown below:
+
+```{r}
+gender_pred_factor %>% accuracy(truth = Gender, .pred_class)
+```
+
+Similarly, here is the confusion matrix:
+
+```{r}
+gender_pred_factor %>% conf_mat(truth = Gender, .pred_class)
+```
+
+
+## Getting Real With Resampling
+
+To improve our accuracy score, we can resort to resampling methods such as k-fold cross-validation. Let us try a 10 fold cross-validation.
+
+```{r}
+set.seed(345)
+folds <- vfold_cv(df_train, v = 10)
+folds
+```
+
+We can now apply the `fit_resamples()` function to our existing workflow:
+
+```{r}
+df_fit_rs <- df_workflow %>% 
+  fit_resamples(folds)
+
+df_fit_rs
+```
+
+The column `.metrics` contains the performance statistics created from the 10 assessment sets. These can be manually unnested but the `tune` package contains a number of simple functions that can extract these data:
+
+```{r}
+collect_metrics(df_fit_rs)
+```
+
+The accuracy and AUC values we now get are more close to how our model will perform in reality. 
+
+## Tuning Hyperparameters
+
+To tune our hyperparameters, let us create a validation test set.
+
+```{r}
+df_val <- validation_split(training(splits), prop = 0.8, strata = Gender)
+```
+
+The `glmnet` R package fits a generalized linear model via **penalized maximum likelihood**. This method of estimating the logistic regression slope parameters uses a penalty on the process so that less relevant predictors are driven towards a value of zero. One of the `glmnet` penalization methods, called the *lasso method*, can actually set the predictor slopes to zero if a large enough penalty is used.
+
+```{r}
+lr_mod <- 
+  logistic_reg(penalty = tune(), mixture = 1) %>% 
+  set_engine("glmnet")
+
+lr_workflow <- 
+  workflow() %>% 
+  add_model(lr_mod) %>% 
+  add_recipe(df_rec)
+```
+
+We wil now create a tuning grid for the penalty term.
+
+```{r}
+lr_reg_grid <- tibble(penalty = 10^seq(-4, -1, length.out = 30))
+```
+
+Now we can tune the model with this tuning grid:
+
+```{r}
+lr_res <- 
+  lr_workflow %>% 
+  tune_grid(df_val,
+            grid = lr_reg_grid,
+            control = control_grid(save_pred = TRUE),
+            metrics = metric_set(roc_auc))
+```
+
+Visualize the results:
+
+```{r}
+lr_plot <- 
+  lr_res %>% 
+  collect_metrics() %>% 
+  ggplot(aes(x = penalty, y = mean)) + 
+  geom_point() + 
+  geom_line() + 
+  ylab("Area under the ROC Curve") +
+  scale_x_log10(labels = scales::label_number())
+lr_plot
+```
+
+Best Model:
+
+```{r}
+top_models <-
+  lr_res %>% 
+  show_best("roc_auc", n = 15) %>% 
+  arrange(penalty) 
+top_models
+```
+
+```{r}
+best_model <- lr_res %>% select_best()
+best_model
+```
+
+We can now finalize our workflow based on the best parameters.
+
+```{r}
+final_wf <- 
+  lr_workflow %>% 
+  finalize_workflow(best_model)
+
+final_wf
+```
+
+## Exploring Results
+
+```{r}
+final_model <- final_wf %>% 
+  fit(df_train)
+```
+
+```{r}
+gender_predict_final <- predict(final_model, df_test) %>% 
+  bind_cols(df_test)
+
+gender_predict_final %>% accuracy(truth = Gender, .pred_class)
+```
+
