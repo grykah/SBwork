@@ -1,1 +1,1 @@
-Sys.setenv(RETICULATE_PYTHON = "venv/Scripts/python")
+Sys.setenv(RETICULATE_PYTHON = "C:/Users/Hailey/anaconda3")
