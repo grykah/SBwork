@@ -1,0 +1,192 @@
+---
+title: "RandomForest_casestudy_covid19"
+author: "HGRYK"
+date: "September 7, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Coronavirus
+Coronavirus disease (COVID-19) is an infectious disease caused by a new virus.
+The disease causes respiratory illness (like the flu) with symptoms such as a cough, fever, and in more severe cases, difficulty breathing. You can protect yourself by washing your hands frequently, avoiding touching your face, and avoiding close contact (2 meters or 6 feet) with people who are unwell. An outbreak of COVID-19 started in December 2019 and at the time of the creation of this project was continuing to spread throughout the world. Many governments recommended only essential outings to public places and closed most business that do not serve food or sell essential items. An excellent [spatial dashboard](https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6) built by Johns Hopkins shows the daily confirmed cases by country. 
+
+This case study was designed to drive home the important role that data science plays in real-world situations like this pandemic. This case study uses the Random Forest Classifier and a dataset from the South Korean cases of COVID-19 provided on [Kaggle](https://www.kaggle.com/kimjihoo/coronavirusdataset) to encourage research on this important topic. The goal of the case study is to build a Random Forest Classifier to predict the 'state' of the patient.
+
+
+```{r packages}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(miscset)
+
+library(tidyverse)
+library(tidymodels)
+library(caTools)
+library(randomForest)
+
+library(reticulate)
+#library(umap)
+reticulate::use_python("C:/Users/Hailey/Anaconda3/python.exe", required=TRUE)
+#use_condaenv(condaenv='Anaconda3', required = TRUE)
+# py_run_string('import umap')
+```
+
+
+Import the data and take a look.  
+```{r}
+df <- read_csv("PatientInfo.csv")
+nrow(df)
+ncol(df)
+head(df, n = 6)
+```
+
+Quickly it becomes clear that there are null values in the dataset that need to be addressed in order to predict the 'state' of the patient.
+
+```{r}
+# count null values
+na_count <-sapply(df, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count[order(-na_count)])
+head(na_count, n=6)
+```
+
+The table above shows the counts of null values for each variable.  Those with null values need to be addressed.  Some values can be populated with the mean, some calculated based on filled values, a few date features will be filled with 0 as an indicator that the event has not occured, and others we will use fill() to complete.  Each strategy is annotated in the code blocks below.  
+
+```{r}
+#populate null values in numeric columns with mean of column
+
+features = c('global_num', 'birth_year', 'infection_order', 'contact_number')
+
+for(i in features){
+  #print(i)
+  df[is.na(df[,i]), i] <- sapply(df[i], mean, na.rm=TRUE)
+}
+```
+
+```{r}
+#calculate values based on what we populated
+today = as.numeric(format(Sys.Date(), "%Y"))
+
+df$n_age <- today - df$birth_year
+
+#binning years to #s for age
+bins <- c(1910, 1920, 1930, 1940,1950,1960,1970,1980,1990,2000, 2010, Inf)
+names <- c('100s', '90s', '80s', '70s', '60s', '50s', '40s', '30s', '20s', '10s', '0s')
+
+df$age <- cut(df$birth_year, breaks = bins, labels = names)
+
+```
+```{r}
+# for disease, replace true with 1 and na/false with 0
+df$disease <- lapply(df$disease, as.numeric)
+df$disease[is.na(df$disease)] <-0
+```
+
+```{r}
+# fill in date values that cannot be predicted with 0
+df$released_date <- as.character(df$released_date)
+df$released_date[is.na(df$released_date)] <- 0
+
+df$deceased_date <- as.character(df$deceased_date)
+df$deceased_date[is.na(df$deceased_date)] <- 0
+```
+
+```{r}
+# fill missing values in confirmed date, then fill missing values in symptom onset with confirmed date
+df <- df %>% fill("confirmed_date")
+
+df$symptom_onset_date <- df$symptom_onset_date %>% coalesce(df$symptom_onset_date, df$confirmed_date)
+```
+
+```{r}
+#fill in infected_by and infection_case
+df <- df %>% fill(c("infected_by", "infection_case", "sex", "city", "state"), .direction = "down")
+df <- df %>% fill("infected_by", .direction = "up")
+```
+
+Now that we have completed all of the imputation, let's check for null values again to make sure we did not miss anything.
+
+```{r}
+# check for null values
+na_count <-sapply(df, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count[order(-na_count)])
+head(na_count, n=6)
+```
+
+Note that all the predictive features are populated.  
+
+There were many missing values in the date columns which were imputed or set as an indicator value.  These will likely not give us the best information and for the first several months of the pandemic, cases were still low enough that one date vs another wont provide much predictive power.  Let's drop the date columns.
+```{r}
+df <- subset(df, select = -c(`symptom_onset_date`, `confirmed_date`, `released_date`, `deceased_date`, `city`))
+```
+
+
+Create a visualization of the data.
+
+```{r}
+boxplot(n_age~state,data=df, main="COVID infection state considering age",
+   xlab="State", ylab="Age")
+```
+
+This visualization supports our intuition regarding age groups that would be more severly impacted by COVID with more older people deceased and more young people released.  
+
+Let's take a look at the data types and update any, as required.
+
+```{r}
+df <- df %>% transform(sex = as.factor(sex),
+                       disease = as.factor(unlist(disease)),
+                       country = as.factor(country),
+                       province = as.factor(province),
+                       #city = as.factor(city),
+                       infection_case = as.factor(infection_case),
+                       state = as.factor(state)
+                       )
+
+
+sapply(df, class)
+```
+
+
+Now that we have updated each column to an appropriate type, we can begin taking steps towards creating our model.  
+
+First, we set aside a portion of the data for testing.
+
+```{r}
+sample = sample.split(df$state, SplitRatio = 0.75)
+
+train = subset(df, sample == TRUE)
+test = subset(df, sample ==FALSE)
+
+dim(train)
+dim(test)
+```
+
+Above we have sucessfully split our data and created train and test subsets.  
+
+Next we will initialize an instance of the `randomForest` class.  Unlike in python's scikit-learn package, `fit` does not need to explicitly be called to train the model.  
+
+```{r}
+rf <- randomForest(state ~ ., data = train)
+rf
+```
+
+By default, the number of decision trees in the forest is 500 and the number of features used as potential candidates for each split is 3. The model will automatically attempt to classify each of the samples in the dataset and display a confusion matrix (seen above) with the results.
+
+Finally, the model can be used to predict the state of the disease in people in the testing set.  
+
+```{r}
+pred = predict(rf, newdata=test[-13])
+```
+
+Since this is a classification problem, we use a confusion matrix to evaluate the performance of our model. Recall that values on the diagonal correspond to true positives and true negatives (correct predictions) whereas the others correspond to false positives and false negatives.
+
+```{r}
+cm = table(test[,13], pred)
+cm
+```
+
+The confusion matrix shows the majority of our data was classified correctly, with only few false positive/ false negative results.
+
+Thus, we have successfully utilized a random forest technique to classify our results.  
