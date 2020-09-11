@@ -1,0 +1,221 @@
+---
+title: "Time Series Analysis - Avocados"
+author: "HGRYK"
+date: "September 10, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Time Series Analysis of the Cost of Avocados
+
+
+#### Reading the Time Series Data
+Begin by loading the requisite libraries for our work:
+```{r}
+library(readr)
+library(janitor)
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+library(dplyr)
+library(tibbletime)
+library(class)
+library(tree)
+library(forecast)
+```
+
+
+Now we are ready to read our data into R and plot the entire time series.  The data can be read into R with the `readr` package.
+
+```{r}
+avocado <- read_csv("avocado.csv", col_types = cols(Date = col_date(format = "%Y-%m-%d"), X1 = col_skip(), year = col_integer(), year = col_factor(levels = c("2015", 
+    "2016", "2017", "2018")) ,type = col_factor(levels = c("conventional", 
+    "organic")))) %>% clean_names()
+
+head(avocado)
+```
+Here are the first few lines of the data.  The data has been formated on read-in and the column of indexes had been removed. 
+
+Next plot the timeseries of the Average Price.  
+
+```{r}
+p <- ggplot(avocado, aes(x=date, y=average_price)) +
+              geom_line() +
+              xlab("") + 
+              theme(axis.text.x=element_text(angle = 60, hjust = 1))
+              
+p+scale_x_date(date_labels = "%Y %b %d")
+```
+
+The data runs from 2015 to 2018.  Beyond this, it is difficult to intuit too much more from this plot.  We will have to explore more deeply.  
+
+#### Explotatory Data Analysis
+
+The first plot was very dense so we can look at the types of data that are in that plot.  
+```{r}
+print(levels(avocado$type))
+
+# Density plots of the different type of avocadoes.
+options(repr.plot.width=8, repr.plot.height=4)
+ggplot(avocado, aes(x=average_price, fill=type)) + geom_density() + facet_wrap(~type) + theme_minimal() + 
+theme(plot.title=element_text(hjust=0.5), legend.position="bottom") + labs(title="Avocado Price by Type") + scale_fill_brewer(palette="Set2")
+```
+
+As it turns out, there are two types of avocados in this dataset: conventional and organic.  
+
+```{r}
+vol_type <- avocado %>% group_by(type) %>%
+  summarise(avg.vol=mean(total_volume))  %>%
+  mutate(pct=prop.table(avg.vol) * 100) 
+
+vol_type
+```
+
+More conventional avocados are sold than organic and the price of organic avocados is higher than conventional avocados.  Let's break down the average price futher using the type of avocado.   
+
+```{r}
+# sort the dates
+avocado <- avocado[order(as.Date(avocado$date, format="%Y-%m-%d")),]
+
+# overlayed price trends by type
+price_trend <- avocado %>% select(date, average_price, type) %>%
+ggplot(aes(x=date, y=average_price)) + geom_area(aes(color=type, fill=type), alpha = 0.3, position = position_dodge(0.8)) + 
+theme_minimal() +  scale_color_manual(values = c("#ED7921", "#62BE51")) + scale_fill_manual(values = c("#FD833E", "#B8FC5F"))
+
+price_trend
+```
+
+
+
+While the average price is lower for conventional avocados, the price variance is higher for organic avocados.  
+
+Since there is a clear difference in prices between avocado types, let's seperate the two types.  
+```{r}
+# Filter by type
+organic <- avocado %>% select(date, average_price, type, total_volume) %>% filter(type == "organic")
+
+conventional <- avocado %>% select(date, average_price, type, total_volume) %>% filter(type == "conventional")
+
+# set up the organic time series index
+organic <- as_tbl_time(organic, index=date)
+organic <- as_period(organic, '1 month')
+
+# set up the conventional time series index
+conventional <- as_tbl_time(conventional, index=date)
+conventional <- as_period(conventional, '1 month')
+
+head(conventional)
+head(organic)
+```
+
+In the plot Avocado Price by Type above, aside from the differences in average price, we also see there is a difference in density.  Let's explore how supply impacts the price of avocados.  
+
+```{r}
+# show monthly avocadoes price
+options(repr.plot.width=8, repr.plot.height=6)
+conventional_monthly <- conventional %>%
+ggplot(aes(x=date, y=average_price)) + geom_line(color="#7FB3D5") +  
+theme(plot.title=element_text(hjust=0.5), plot.background=element_rect(fill="#D5D8DC")) + 
+labs(title="Conventional Avocados") + geom_hline(yintercept=max(conventional$average_price), linetype="dashed", color = "red") + 
+geom_hline(yintercept=min(conventional$average_price), linetype="dashed", color = "blue")
+
+# create a volume chart
+conventional_volume <- conventional %>%
+ggplot(aes(x=date, y=total_volume)) + geom_bar(stat='identity', fill="#7FB3D5", color="black") +  
+theme(plot.title=element_text(hjust=0.5), plot.background=element_rect(fill="#D5D8DC")) + 
+geom_smooth(method="loess", color="red")
+
+organic_monthly <- organic %>% 
+ggplot(aes(x=date, y=average_price)) + geom_line(color="#58D68D") +  
+theme(plot.title=element_text(hjust=0.5), plot.background=element_rect(fill="#D5D8DC")) + 
+labs(title="Organic Avocados") + geom_hline(yintercept=max(organic$average_price), linetype="dashed", color = "red") + 
+geom_hline(yintercept=min(organic$average_price), linetype="dashed", color = "blue")
+
+organic_volume <- organic %>%
+ggplot(aes(x=date, y=total_volume)) + geom_bar(stat='identity', fill="#58D68D",color="black") +  
+theme(plot.title=element_text(hjust=0.5), plot.background=element_rect(fill="#D5D8DC")) + geom_smooth(method="loess", color="red")
+
+plot_grid(conventional_monthly, organic_monthly,conventional_volume, organic_volume, nrow=2, ncol=2)
+```
+
+Mid way through 2017, there is a drop in both conventional and organic avocado price along with a large increase in volume.  This indicates supply and prices have an inverse relationship.  When there is an overproduction of avocados, there is a negative impact on the price.  Additionally, each time there is a volume peak, it precedes a drop in avocado prices.  
+
+Given that prices and supply are relational, it would follow that certain times of year would naturally have a higher price since avocado production is lower and vice-versa.  Let's create a seasonal dataframe and look for trends.   
+
+```{r}
+seasonal_df <- avocado
+
+seasonal_df$month_year <- format(as.Date(avocado$date), "%Y-%m")
+seasonal_df$month <- format(as.Date(avocado$date), "%m")
+seasonal_df$year <- format(as.Date(avocado$date), "%Y")
+
+
+seasonal_df$monthabb <- sapply(seasonal_df$month, function(x) month.abb[as.numeric(x)])
+seasonal_df$monthabb = factor(seasonal_df$monthabb, levels = month.abb)
+```
+
+
+```{r}
+options(repr.plot.width=8, repr.plot.height=6) 
+
+#create a seasonal column and plot a point line chart by year
+seasonal_df$season <- ifelse(seasonal_df$month %in% c("03", "04","05"), "Spring",
+                            ifelse(seasonal_df$month %in% c("06","07" ,"08"), "Summer",
+                                  ifelse(seasonal_df$month %in% c("09","10","11"), "Fall", "Winter")))
+
+
+seasonality.plot.conventional <- seasonal_df %>% select(season, year, average_price, type) %>% 
+filter(type == "conventional", year == c("2015", "2016", "2017")) %>%
+group_by(season, year) %>%
+summarize(avg=mean(average_price)) %>% ggplot(aes(x=season, y=avg, color=season)) + geom_point(size=3) + 
+ geom_segment(aes(x=season, 
+                   xend=season, 
+                   y=0, 
+                   yend=avg)) + 
+coord_flip() + facet_wrap(~as.factor(year)) + theme_minimal() + 
+theme(plot.title=element_text(hjust=0.5), plot.background=element_rect(fill="#F4F6F7")) + 
+scale_color_manual(values=c("#a06a31", "#9bd16b", "#d1706b", "#3bbf9e")) + 
+labs(title="Conventional Avocados by Season", x="Season", y="Average Price") + 
+geom_text(aes(x=season, y=0.01, label= paste0("$ ", round(avg,2))),
+            hjust=-0.5, vjust=-0.5, size=4, 
+            colour="black", fontface="italic",
+         angle=360)
+
+seasonality.plot.organic <- seasonal_df %>% select(season, year, average_price, type) %>% 
+filter(type == "organic", year == c("2015", "2016", "2017")) %>%
+group_by(season, year) %>%
+summarize(avg=mean(average_price)) %>% ggplot(aes(x=season, y=avg, color=season)) + geom_point(size=3) + 
+ geom_segment(aes(x=season, 
+                   xend=season, 
+                   y=0, 
+                   yend=avg)) + 
+coord_flip() + facet_wrap(~as.factor(year)) + theme_minimal() + 
+theme(plot.title=element_text(hjust=0.5), plot.background=element_rect(fill="#F4F6F7")) + 
+scale_color_manual(values=c("#a06a31", "#9bd16b", "#d1706b", "#3bbf9e")) + 
+labs(title="Organic Avocados by Season", x="Season", y="Average Price") + 
+geom_text(aes(x=season, y=0.01, label= paste0("$ ", round(avg,2))),
+            hjust=-0.5, vjust=-0.5, size=4, 
+            colour="black", fontface="italic",
+         angle=360)
+
+
+plot_grid(seasonality.plot.conventional, seasonality.plot.organic, nrow=2)
+```
+
+As we suspected, fall and summer consistently have higher prices than winter and spring.  
+
+Moving forward, we will further examine the relationship between volume of avocados and the price of the avocado types. 
+
+#### Autocorrelation
+
+
+
+
+
+
+
+
+
