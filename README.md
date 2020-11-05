@@ -3,7 +3,7 @@ Work completed for learning purposes during the springboard course while masteri
 
 * Capstone 1: A guided business project about ski resorts.  Data cleaning, EDA, visualization, and modeling are conducted in this project to provide fiscal recommendations to resort owners. 
 
-* Capstone 2: Collection of COVID-19 and human social/health data were collected with the goal of predicting the day on which 100 cases was reached since this timeframe is correlated to the rate of infection and ultimate number of cases during the initial stages of a pandemic (prior to implementation of mitigating strategies).  
+* Capstone 2: Collection of COVID-19 and human social/health data were collected (wrangled in R along with some feature engineering) with the goal of predicting the day on which 100 cases was reached since this timeframe is correlated to the rate of infection and ultimate number of cases during the initial stages of a pandemic (prior to implementation of mitigating strategies).  
 
 * Capstone 3: This is an example project which utilizes machine learning techniques to implement a bot that responds to user dialogue.  Due to the non-public content of my initial project, this repo contains an example only, however, this sample reflects the skills obtained in my actual project.  This bot is a conversational bot only, but the initial project provided direction to users when they had questions regarding a specific network system.  
 
