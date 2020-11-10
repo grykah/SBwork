@@ -11,6 +11,8 @@ Work completed for learning purposes during the springboard course while masteri
 
 * MiniProjects: Brief looks at various data.  Topics explored include statistical methods, SQL, data wrangling, data clean, exploratory data analysis, and data visualization. 
 
+* Network Analysis: Analysis of network activity using PCAP files.
+
 * Neural Networks: Implementation of neural networks for predictive purposes.
 
 * Parameter Optimization: A dive into optimizing parameters for Bayesian and KNN methods.
