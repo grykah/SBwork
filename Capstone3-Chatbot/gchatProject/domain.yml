@@ -1,0 +1,36 @@
+session_config:
+  session_expiration_time: 60
+  carry_over_slots_to_new_session: true
+intents:
+- greet
+- goodbye
+- affirm
+- deny
+- mood_great
+- mood_unhappy
+- bot_challenge
+- day_inquire
+responses:
+  utter_greet:
+  - text: Hey! How are you?
+  utter_did_that_help:
+  - text: Did that help you?
+  utter_goodbye:
+  - text: Bye
+  utter_iamabot:
+  - text: I am a bot, powered by Rasa.
+  utter_happy:
+  - text: That's great!  I'm doing well too.
+  - text: That makes me happy.  I wish my day were going so well.
+  utter_cheer_up:
+  - text: You're great.  Don't be upset.
+  - text: Well, I think you are awesome!
+  - image: https://imgur.com/gallery/voSP9
+    text: Here's something to make you smile!
+  utter_day_inquire:
+  - text: I'm just relaxing and reading. You?
+  - text: I have been cleaning lab and reorganizing equipment.  It REALLY needed to
+      be done! lol
+  - text: Getting ready to go home after doing analysis all day.
+actions:
+- utter_day_inquire
